@@ -25,21 +25,21 @@ export default function ChallengeGame() {
   const [countdown, setCountdown] = useState(null);
   const navigate = useNavigate();
 
-  // Helper to compute remaining seconds against server expireAt
+  // Compute seconds remaining until expireAt
   const computeRemaining = (expireAt) => {
     if (!expireAt?.toMillis) return 0;
     const ms = expireAt.toMillis() - Date.now();
     return Math.max(Math.ceil(ms / 1000), 0);
   };
 
-  // Notification permission
+  // Request notification permission once
   useEffect(() => {
     if (Notification.permission === 'default') {
       Notification.requestPermission();
     }
   }, []);
 
-  // Auth & username fetch
+  // Auth state + fetch username
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (!u) {
@@ -68,20 +68,17 @@ export default function ChallengeGame() {
     return () => unsub();
   }, []);
 
-  // Receiver listener: new pending challenges for me
+  // Listen for incoming pending challenges
   useEffect(() => {
     if (!user) return;
-    let recInit = false;
+    let init = false;
     const recQ = query(
       collection(db, 'challenges'),
       where('toEmail', '==', user.email),
       where('status', '==', 'pending')
     );
     const unsub = onSnapshot(recQ, (snap) => {
-      if (!recInit) {
-        recInit = true;
-        return;
-      }
+      if (!init) { init = true; return; }
       snap.docChanges().forEach(change => {
         const data = { id: change.doc.id, ...change.doc.data() };
         if ((change.type === 'added' || change.type === 'modified') && data.expireAt) {
@@ -99,7 +96,7 @@ export default function ChallengeGame() {
     return () => unsub();
   }, [user]);
 
-  // Incoming timer countdown
+  // Countdown for incoming challenge expiration
   useEffect(() => {
     if (timer == null) return;
     if (timer <= 0) {
@@ -111,35 +108,30 @@ export default function ChallengeGame() {
     return () => clearInterval(id);
   }, [timer]);
 
-  // Sender listener: new pending challenges I sent
+  // Listen for outgoing pending challenges
   useEffect(() => {
     if (!user) return;
-    let sendInit = false;
+    let init = false;
     const sendQ = query(
       collection(db, 'challenges'),
       where('fromUID', '==', user.uid),
       where('status', '==', 'pending')
     );
     const unsub = onSnapshot(sendQ, (snap) => {
-      if (!sendInit) {
-        sendInit = true;
-        return;
-      }
+      if (!init) { init = true; return; }
       snap.docChanges().forEach(change => {
-  const data = { id: change.doc.id, ...change.doc.data() };
-  if ((change.type === 'added' || change.type === 'modified') && data.expireAt) {
-    // now toUsername is already on the document
-    setOutgoingChallenge(data);
-    setOutgoingTimer(computeRemaining(data.expireAt));
-    setStatus(`✅ Challenge sent to ${data.toUsername || data.toEmail}.`);
-  }
-});
-
+        const data = { id: change.doc.id, ...change.doc.data() };
+        if ((change.type === 'added' || change.type === 'modified') && data.expireAt) {
+          setOutgoingChallenge(data);
+          setOutgoingTimer(computeRemaining(data.expireAt));
+          setStatus(`✅ Challenge sent to ${data.toUsername || data.toEmail}.`);
+        }
+      });
     });
     return () => unsub();
   }, [user]);
 
-  // Outgoing timer countdown
+  // Countdown for outgoing challenge expiration
   useEffect(() => {
     if (outgoingTimer == null) return;
     if (outgoingTimer <= 0) {
@@ -151,7 +143,57 @@ export default function ChallengeGame() {
     return () => clearInterval(id);
   }, [outgoingTimer]);
 
-  // Countdown before game start
+  // 🔔 NEW: Listen for accepted challenges (synchronized countdown)
+  useEffect(() => {
+    if (!user) return;
+
+    // Sender side
+    const senderQ = query(
+      collection(db, 'challenges'),
+      where('fromUID', '==', user.uid),
+      where('status', '==', 'accepted')
+    );
+    const unsubSender = onSnapshot(senderQ, snap => {
+      snap.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.startTime && countdown == null) {
+          const diff = data.startTime.toDate() - new Date();
+          if (diff > 0) {
+            setTimeout(() => setCountdown(3), diff);
+          } else {
+            setCountdown(3);
+          }
+        }
+      });
+    });
+
+    // Receiver side
+    const receiverQ = query(
+      collection(db, 'challenges'),
+      where('toEmail', '==', user.email),
+      where('status', '==', 'accepted')
+    );
+    const unsubReceiver = onSnapshot(receiverQ, snap => {
+      snap.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.startTime && countdown == null) {
+          const diff = data.startTime.toDate() - new Date();
+          if (diff > 0) {
+            setTimeout(() => setCountdown(3), diff);
+          } else {
+            setCountdown(3);
+          }
+        }
+      });
+    });
+
+    return () => {
+      unsubSender();
+      unsubReceiver();
+    };
+  }, [user, countdown]);
+
+  // Countdown before navigating to the game
   useEffect(() => {
     if (countdown == null) return;
     if (countdown <= 0) {
@@ -163,7 +205,7 @@ export default function ChallengeGame() {
     return () => clearTimeout(id);
   }, [countdown, navigate]);
 
-  // Send challenge (no manual timer)
+  // Send a challenge
   const sendChallenge = async () => {
     if (!/^[\w.+-]+@gmail\.com$/.test(email.trim())) {
       alert('Enter a valid Gmail address.');
@@ -173,25 +215,23 @@ export default function ChallengeGame() {
       alert('Log in to send a challenge.');
       return;
     }
-    const to = email.trim();
     try {
-      await createChallenge(user.uid, user.email, username, to);
+      await createChallenge(user.uid, user.email, username, email.trim());
       await fetch(
         'https://us-central1-tapchallengegame-6255f.cloudfunctions.net/sendChallengeEmail',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fromUsername: username, toEmail: to })
+          body: JSON.stringify({ fromUsername: username, toEmail: email.trim() })
         }
       );
-      // setStatus(`✅ Challenge sent to ${to}.`);
       setEmail('');
     } catch {
       alert('❌ Failed to send challenge.');
     }
   };
 
-  // Accept challenge (receiver)
+  // Accept incoming challenge
   const handleAccept = async () => {
     if (!incomingChallenge) return;
     await acceptChallenge(incomingChallenge.id);
@@ -200,14 +240,12 @@ export default function ChallengeGame() {
     setCountdown(3);
   };
 
-  const isRecipient = incomingChallenge?.toEmail === user?.email;
-
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-gray-100 space-y-4">
       <h1 className="text-2xl font-bold">🎯 Challenge a Friend</h1>
 
       {/* RECEIVER BANNER */}
-      {incomingChallenge && (
+      {incomingChallenge && countdown == null && (
         <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-6 py-4 rounded w-full max-w-md text-center">
           <p className="text-lg">
             ⚔️ You’ve been challenged by{' '}
@@ -225,15 +263,23 @@ export default function ChallengeGame() {
         </div>
       )}
 
-      {/* SENDER BANNER (now uses username) */}
-      {outgoingChallenge && (
+      {/* SENDER BANNER */}
+      {outgoingChallenge && countdown == null && (
         <div className="bg-blue-100 border border-blue-400 text-blue-800 px-6 py-4 rounded w-full max-w-md text-center">
           <p className="text-lg">
-            ⏳ Waiting for <b>{outgoingChallenge.toUsername || outgoingChallenge.toEmail}</b> to accept…
+            ⏳ Waiting for <b>{outgoingChallenge.toUsername || outgoingChallenge.toEmail}</b> to
+            accept…
           </p>
           <div className="text-3xl font-bold text-blue-700 mt-2">
             {outgoingTimer}s left
           </div>
+        </div>
+      )}
+
+      {/* COUNTDOWN DISPLAY */}
+      {countdown != null && (
+        <div className="text-4xl font-extrabold text-green-800">
+          Game starts in {countdown}
         </div>
       )}
 

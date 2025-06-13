@@ -7,6 +7,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react
 function NavigationTabs() {
   const location = useLocation();
   const isActive = (path) => location.pathname === path;
+  const onGamePage = location.pathname === '/game';
 
   return (
     <div className="flex justify-center space-x-4 p-4 bg-gray-200">

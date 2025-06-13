@@ -44,18 +44,9 @@ export const createChallenge = async (fromUID, fromEmail, fromUsername, toEmail)
  * @returns {Promise<boolean>} success
  */
 export const acceptChallenge = async (challengeId) => {
-  const ref = doc(db, 'challenges', challengeId);
-  try {
-    const now = Date.now();
-    await updateDoc(ref, {
-      status: 'accepted',
-      acceptedAt: serverTimestamp(),
-      startAt: now + 3000,  // 3-second delay
-      gameStarted: true
-    });
-    return true;
-  } catch (e) {
-    console.error('❌ Firestore Error accepting challenge:', e);
-    return false;
-  }
+  const challengeRef = doc(db, 'challenges', challengeId);
+  await updateDoc(challengeRef, {
+    status: 'accepted',
+    startTime: serverTimestamp(), // ⏱️ Add this line
+  });
 };
