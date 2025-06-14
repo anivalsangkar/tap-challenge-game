@@ -1,8 +1,11 @@
+// src/challenge/ChallengeGame.jsx
 import React, { useState, useEffect } from 'react';
 import TapGame from '../components/TapGame';
 import { createChallenge, acceptChallenge } from '../utils/challengeUtils';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import useOutgoingChallenge from '../hooks/useOutgoingChallenge';
+import useChallengeStatus from '../hooks/useChallengeStatus';
 import {
   collection,
   query,
@@ -14,38 +17,44 @@ import {
 import { showNotification } from '../utils/notify';
 
 export default function ChallengeGame() {
+  // ─── State ──────────────────────────────────────────────────────────────
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState('');
   const [user, setUser] = useState(null);
   const [username, setUsername] = useState('');
   const [incomingChallenge, setIncomingChallenge] = useState(null);
   const [timer, setTimer] = useState(null);
-  const [outgoingChallenge, setOutgoingChallenge] = useState(null);
-  const [outgoingTimer, setOutgoingTimer] = useState(null);
   const [countdown, setCountdown] = useState(null);
   const [showGame, setShowGame] = useState(false);
 
-  // 1️⃣ Early-return into the actual game once countdown finishes
-  if (showGame) {
-    return <TapGame />;
-  }
+  // ─── Custom Hooks (must run on every render) ────────────────────────────
+  const { challenge: outgoingChallenge, remainingTime: outgoingTimer } =
+    useOutgoingChallenge(user?.uid);
 
-  // Helpers
+  const challengeId = incomingChallenge?.id || outgoingChallenge?.id;
+  const { start, finish } = useChallengeStatus(challengeId);
+
+  // Firestore “in-game” status when entering the game screen
+  useEffect(() => {
+    if (showGame) start();
+  }, [showGame, start]);
+
+  // ─── Helpers ───────────────────────────────────────────────────────────
   const computeRemaining = (expireAt) => {
     if (!expireAt?.toMillis) return 0;
     const ms = expireAt.toMillis() - Date.now();
     return Math.max(Math.ceil(ms / 1000), 0);
   };
 
-  // 2️⃣ Auth + username
+  // ─── Effects & Listeners ──────────────────────────────────────────────
+
+  // Auth listener & username fetch
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (!u) {
         setUser(null);
         setIncomingChallenge(null);
         setTimer(null);
-        setOutgoingChallenge(null);
-        setOutgoingTimer(null);
         setCountdown(null);
         return;
       }
@@ -56,17 +65,14 @@ export default function ChallengeGame() {
           setUsername(snap.data().username);
         }
       } catch {}
-      // reset any previous state
       setIncomingChallenge(null);
       setTimer(null);
-      setOutgoingChallenge(null);
-      setOutgoingTimer(null);
       setCountdown(null);
     });
     return () => unsub();
   }, []);
 
-  // 3️⃣ Incoming pending listener
+  // Incoming “pending” listener
   useEffect(() => {
     if (!user) return;
     let init = false;
@@ -94,7 +100,7 @@ export default function ChallengeGame() {
     return () => unsub();
   }, [user]);
 
-  // 4️⃣ Incoming expiration countdown
+  // Incoming expiration countdown
   useEffect(() => {
     if (timer == null) return;
     if (timer <= 0) {
@@ -106,42 +112,7 @@ export default function ChallengeGame() {
     return () => clearInterval(id);
   }, [timer]);
 
-  // 5️⃣ Outgoing pending listener
-  useEffect(() => {
-    if (!user) return;
-    let init = false;
-    const sendQ = query(
-      collection(db, 'challenges'),
-      where('fromUID', '==', user.uid),
-      where('status', '==', 'pending')
-    );
-    const unsub = onSnapshot(sendQ, (snap) => {
-      if (!init) { init = true; return; }
-      snap.docChanges().forEach(change => {
-        const data = { id: change.doc.id, ...change.doc.data() };
-        if ((change.type === 'added' || change.type === 'modified') && data.expireAt) {
-          setOutgoingChallenge(data);
-          setOutgoingTimer(computeRemaining(data.expireAt));
-          setStatus(`✅ Challenge sent to ${data.toUsername || data.toEmail}.`);
-        }
-      });
-    });
-    return () => unsub();
-  }, [user]);
-
-  // 6️⃣ Outgoing expiration countdown
-  useEffect(() => {
-    if (outgoingTimer == null) return;
-    if (outgoingTimer <= 0) {
-      setOutgoingChallenge(null);
-      setOutgoingTimer(null);
-      return;
-    }
-    const id = setInterval(() => setOutgoingTimer(t => t - 1), 1000);
-    return () => clearInterval(id);
-  }, [outgoingTimer]);
-
-  // 7️⃣ NEW: Sender listener for “accepted” → start countdown
+  // Sender’s “accepted” listener → start 3s countdown
   useEffect(() => {
     if (!outgoingChallenge) return;
     const challengeRef = doc(db, 'challenges', outgoingChallenge.id);
@@ -149,16 +120,14 @@ export default function ChallengeGame() {
       const data = snap.data();
       if (data.status === 'accepted' && countdown == null) {
         setIncomingChallenge(null);
-        setOutgoingChallenge(null);
         setTimer(null);
-        setOutgoingTimer(null);
         setCountdown(3);
       }
     });
     return () => unsub();
   }, [outgoingChallenge, countdown]);
 
-  // 8️⃣ Countdown → show game
+  // 3-second countdown → enter game
   useEffect(() => {
     if (countdown == null) return;
     if (countdown <= 0) {
@@ -170,7 +139,8 @@ export default function ChallengeGame() {
     return () => clearTimeout(id);
   }, [countdown]);
 
-  // Send challenge
+  // ─── Handlers ──────────────────────────────────────────────────────────
+
   const sendChallenge = async () => {
     if (!/^[\w.+-]+@gmail\.com$/.test(email.trim())) {
       alert('Enter a valid Gmail address.');
@@ -191,12 +161,12 @@ export default function ChallengeGame() {
         }
       );
       setEmail('');
+      setStatus(`✅ Challenge sent to ${email.trim()}`);
     } catch {
       alert('❌ Failed to send challenge.');
     }
   };
 
-  // Accept challenge (receiver)
   const handleAccept = async () => {
     if (!incomingChallenge) return;
     try {
@@ -210,7 +180,10 @@ export default function ChallengeGame() {
     }
   };
 
-  return (
+  // ─── Render: choose Challenge UI or TapGame ────────────────────────────
+  return showGame && user ? (
+    <TapGame onFinish={finish} userId={user.uid} />
+  ) : (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-gray-100 space-y-4">
       <h1 className="text-2xl font-bold">🎯 Challenge a Friend</h1>
 
@@ -237,8 +210,8 @@ export default function ChallengeGame() {
       {outgoingChallenge && countdown == null && (
         <div className="bg-blue-100 border border-blue-400 text-blue-800 px-6 py-4 rounded w-full max-w-md text-center">
           <p className="text-lg">
-            ⏳ Waiting for <b>{outgoingChallenge.toUsername || outgoingChallenge.toEmail}</b> to
-            accept…
+            ⏳ Waiting for{' '}
+            <b>{outgoingChallenge.toUsername || outgoingChallenge.toEmail}</b> to accept…
           </p>
           <div className="text-3xl font-bold text-blue-700 mt-2">
             {outgoingTimer}s left
