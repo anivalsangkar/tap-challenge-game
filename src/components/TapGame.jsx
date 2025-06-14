@@ -6,13 +6,15 @@ export default function TapGame({ onFinish, userId }) {
   const [timeLeft, setTimeLeft] = useState(15);
 
   useEffect(() => {
+    // When the timer hits zero, report both userId and taps
     if (timeLeft === 0) {
-      onFinish(userId);
+      onFinish(userId, taps);
       return;
     }
-    const timer = setTimeout(() => setTimeLeft(t => t - 1), 1000);
+    // Otherwise, count down every second
+    const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
     return () => clearTimeout(timer);
-  }, [timeLeft, onFinish, userId]);
+  }, [timeLeft, onFinish, userId, taps]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-green-100 text-center space-y-4">
@@ -20,7 +22,7 @@ export default function TapGame({ onFinish, userId }) {
       <p className="text-lg">⏱️ Time Left: {timeLeft} seconds</p>
       <p className="text-lg">👆 Taps: {taps}</p>
       <button
-        onClick={() => setTaps(t => t + 1)}
+        onClick={() => setTaps(prev => prev + 1)}
         disabled={timeLeft === 0}
         className="bg-blue-600 text-white px-6 py-2 rounded text-xl"
       >

@@ -1,10 +1,8 @@
 import React from 'react';
 import PleasureGame from './pleasure/PleasureGame';
 import ChallengeGame from './challenge/ChallengeGame';
-import TapGame from './components/TapGame'; // You’ll build this next
+import TapGame from './components/TapGame';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import useIncomingChallenge from './hooks/useIncomingChallenge';
-
 
 function NavigationTabs() {
   const location = useLocation();
@@ -32,11 +30,7 @@ function NavigationTabs() {
   );
 }
 
-function App() {
-  // ← Add these two lines at the very top of App()
-  const { challenge, remainingTime, accept } = useIncomingChallenge('your-test@gmail.com');
-  console.log(challenge, remainingTime);
-
+export default function App() {
   return (
     <Router>
       <NavigationTabs />
@@ -48,5 +42,3 @@ function App() {
     </Router>
   );
 }
-
-export default App;
