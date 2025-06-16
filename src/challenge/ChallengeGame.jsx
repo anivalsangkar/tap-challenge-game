@@ -239,6 +239,20 @@ console.log('📌 challengeId:', challengeId);
     }
     if (!user) return alert('Log in first');
     await createChallenge(user.uid, user.email, username, email.trim());
+    try {
+  const res = await fetch('https://us-central1-tapchallengegame-6255f.cloudfunctions.net/sendChallengeEmail', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fromUsername: username, toEmail: email.trim() })
+  });
+  const json = await res.json();
+  console.log('📧 Email function response:', json);
+  if (!res.ok) {
+    console.error('❌ Email send failed:', res.status, json);
+  }
+} catch (err) {
+  console.error('❌ Network/email error:', err);
+}
     setStatusMsg(`✅ Challenge sent to ${email.trim()}`);
     setEmail('');
   };
