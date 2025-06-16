@@ -62,8 +62,7 @@ export default function ChallengeGame() {
       console.log('[statusEffect] fetched challenge data', data);
       setWinnerId(data.winner || null);
       const tapMap = data.taps || {};
-      const oppId =
-        user.uid === data.fromUID ? data.toUID : data.fromUID;
+      const oppId = Object.keys(tapMap).find(id => id !== user.uid);
       setOpponentTaps(tapMap[oppId] || 0);
       console.log('[statusEffect] setting showResults(true)');
       setShowResults(true);
@@ -186,11 +185,12 @@ export default function ChallengeGame() {
     await updateDoc(
       doc(db, 'challenges', challengeId),
       {
-        status:     'finished',       // required
-        winner:     playerId,         // required
-        taps:       tapsMap,          // must be a map
-        finishedAt: serverTimestamp() // optional per your rules
-      }
+      status:      'finished',
+      winner:      playerId,
+      finishedAt:  serverTimestamp(),
+      // nested update: only set taps[playerId], preserve the other player’s entry
+      [`taps.${playerId}`]: taps
+   }
     );
     console.log('[handleFinish] Firestore update complete');
     console.log('[handleFinish] invoking finish()');
