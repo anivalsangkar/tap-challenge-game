@@ -29,7 +29,7 @@ export default function ResultsScreen({
         onClick={onRestart}
         className="mt-4 bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded"
       >
-        Restart Challenge
+        Rematch?
       </button>
     </div>
   );

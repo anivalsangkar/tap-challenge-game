@@ -38,9 +38,16 @@ export default function ChallengeGame() {
   // ─── Hooks ───────────────────────────────────────────────────────────────
   const { challenge: outgoingChallenge, remainingTime: outgoingTimer } =
     useOutgoingChallenge(user?.uid);
+console.log('📦 incomingChallenge:', incomingChallenge?.id);
+console.log('📦 outgoingChallenge:', outgoingChallenge?.id);
+console.log('📦 currentChallengeId:', currentChallengeId);
+
 
   const rawId       = incomingChallenge?.id || outgoingChallenge?.id;
   const challengeId = currentChallengeId || rawId;
+
+  console.log('📌 rawId:', rawId);
+console.log('📌 challengeId:', challengeId);
   // 🔑 FIX: subscribe to the _persistent_ challengeId, not rawId
   const { start, finish, status } = useChallengeStatus(challengeId);
 
@@ -252,15 +259,45 @@ export default function ChallengeGame() {
         opponentTaps={opponentTaps}
         winnerId={winnerId}
         yourId={user.uid}
-        onRestart={() => {
-          // reset for a fresh flow
-          setShowResults(false);
-          setShowGame(false);
-          setCurrentChallengeId(null);
-          setIncomingChallenge(null);
-          setTimer(null);
-          setCountdown(3);
-        }}
+        onRestart={async () => {
+  if (!user || (!incomingChallenge && !outgoingChallenge)) return;
+
+  // 1. Identify opponent's email
+  const opponentEmail =
+    incomingChallenge?.fromEmail || outgoingChallenge?.toEmail;
+
+  if (!opponentEmail) {
+    console.error('❌ Rematch failed: Opponent email not found');
+    return;
+  }
+
+  // 2. Clear all game state before new challenge
+  setShowResults(false);
+  setShowGame(false);
+  setCurrentChallengeId(null);
+  setIncomingChallenge(null);
+  setCountdown(null);
+  setTimer(null);
+  setYourTaps(0);
+  setOpponentTaps(0);
+  setStatusMsg('');
+
+
+  // 3. Wait one tick to let challengeId + status reset
+  setTimeout(async () => {
+    console.log('🔥 Sending rematch to:', opponentEmail);
+
+    await createChallenge(
+      user.uid,
+      user.email,
+      username,
+      opponentEmail
+    );
+
+    setStatusMsg(`✅ Rematch sent to ${opponentEmail}`);
+  }, 100); // delay to ensure previous hook state clears
+}}
+
       />
     );
   }
