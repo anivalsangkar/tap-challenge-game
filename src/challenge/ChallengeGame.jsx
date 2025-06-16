@@ -46,20 +46,26 @@ export default function ChallengeGame() {
 
   // Mark “in-game” in Firestore once we flip into the game screen
   useEffect(() => {
-    if (showGame) start();
+    if (showGame) {
+     console.log('[showGameEffect] showGame is true → starting in‐game status');
+     start();
+   }
   }, [showGame, start]);
 
   // When Firestore status flips to "finished", load taps and show results
   useEffect(() => {
+    console.log('[statusEffect] status is now', status, '— challengeId:', challengeId);
     if (status !== 'finished') return;
     const ref = doc(db, 'challenges', challengeId);
     getDoc(ref).then((snap) => {
       const data = snap.data() || {};
+      console.log('[statusEffect] fetched challenge data', data);
       setWinnerId(data.winner || null);
       const tapMap = data.taps || {};
       const oppId =
         user.uid === data.fromUID ? data.toUID : data.fromUID;
       setOpponentTaps(tapMap[oppId] || 0);
+      console.log('[statusEffect] setting showResults(true)');
       setShowResults(true);
     });
   }, [status, challengeId, user?.uid]);
@@ -159,17 +165,18 @@ export default function ChallengeGame() {
     if (countdown == null) return;
     if (countdown <= 0) {
       setCountdown(null);
-      setCurrentChallengeId(rawId);
+      //setCurrentChallengeId(rawId);
       setShowGame(true);
       return;
     }
     const t = setTimeout(() => setCountdown(c => c - 1), 1000);
     return () => clearTimeout(t);
-  }, [countdown, rawId]);
+  }, [countdown]);
 
   // ─── Handlers ──────────────────────────────────────────────────────────
 
   const handleFinish = async (playerId, taps) => {
+    console.log('[handleFinish] called with', { playerId, taps, challengeId });
     setYourTaps(taps);
 
     // build the full taps map
@@ -185,7 +192,8 @@ export default function ChallengeGame() {
         finishedAt: serverTimestamp() // optional per your rules
       }
     );
-
+    console.log('[handleFinish] Firestore update complete');
+    console.log('[handleFinish] invoking finish()');
     finish(playerId);
   };
 
@@ -198,7 +206,12 @@ export default function ChallengeGame() {
     setStatusMsg(`✅ Challenge sent to ${email.trim()}`);
     setEmail('');
   };
-
+ console.log(
+    '[render] showGame:', showGame,
+    'showResults:', showResults,
+    'incomingChallenge:', Boolean(incomingChallenge),
+    'outgoingChallenge:', Boolean(outgoingChallenge)
+  );
   // ─── Render ─────────────────────────────────────────────────────────────
   if (showGame && user) {
     return <TapGame onFinish={handleFinish} userId={user.uid} />;
