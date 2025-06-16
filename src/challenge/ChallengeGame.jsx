@@ -175,27 +175,56 @@ export default function ChallengeGame() {
   // ─── Handlers ──────────────────────────────────────────────────────────
 
   const handleFinish = async (playerId, taps) => {
-    console.log('[handleFinish] called with', { playerId, taps, challengeId });
-    setYourTaps(taps);
+  console.log('[handleFinish] called with', { playerId, taps, challengeId });
+  setYourTaps(taps);
 
-    // build the full taps map
-    const tapsMap = { [playerId]: taps };
+  const ref = doc(db, 'challenges', challengeId);
 
-    // one atomic write that matches your in-game → finished rule
-    await updateDoc(
-      doc(db, 'challenges', challengeId),
-      {
-      status:      'finished',
-      winner:      playerId,
-      finishedAt:  serverTimestamp(),
-      // nested update: only set taps[playerId], preserve the other player’s entry
-      [`taps.${playerId}`]: taps
-   }
-    );
-    console.log('[handleFinish] Firestore update complete');
-    console.log('[handleFinish] invoking finish()');
-    finish(playerId);
-  };
+  // 1. Update this player's tap count
+  await updateDoc(ref, {
+    [`taps.${playerId}`]: taps
+  });
+
+  // 2. Fetch the updated challenge data
+  const snap = await getDoc(ref);
+  const data = snap.data();
+  const tapMap = data?.taps || {};
+
+  // 3. Check if both players have finished
+  const playerIds = Object.keys(tapMap);
+  if (playerIds.length < 2) {
+    console.log('[handleFinish] Waiting for other player to finish...');
+    return; // Do nothing else yet
+  }
+
+  const [id1, id2] = playerIds;
+  const taps1 = tapMap[id1];
+  const taps2 = tapMap[id2];
+
+  let winner = null;
+  let isTie = false;
+
+  if (taps1 > taps2) {
+    winner = id1;
+  } else if (taps2 > taps1) {
+    winner = id2;
+  } else {
+    isTie = true;
+    winner = null;
+  }
+
+  // 4. Mark the challenge as finished only once
+  await updateDoc(ref, {
+    status: 'finished',
+    winner: winner,
+    isTie: isTie,
+    finishedAt: serverTimestamp()
+  });
+
+  console.log('[handleFinish] Game finished — Winner:', winner || 'Tie');
+  finish(playerId);
+};
+
 
   const sendChallenge = async () => {
     if (!/^[\w.+-]+@gmail\.com$/.test(email.trim())) {
