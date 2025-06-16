@@ -213,10 +213,10 @@ export default function ChallengeGame() {
     'outgoingChallenge:', Boolean(outgoingChallenge)
   );
   // ─── Render ─────────────────────────────────────────────────────────────
-  if (showGame && user) {
-    return <TapGame onFinish={handleFinish} userId={user.uid} />;
-  }
+  
+
   if (showResults) {
+    console.log('[render] 💥 showResults is true, rendering ResultsScreen');
     return (
       <ResultsScreen
         yourTaps={yourTaps}
@@ -235,6 +235,34 @@ export default function ChallengeGame() {
       />
     );
   }
+  
+  if (showGame && user) {
+    console.log('[render] before showResults check – showResults:', showResults);
+    return <TapGame onFinish={handleFinish} userId={user.uid} />;
+  }
+
+
+  
+  // if (showResults) {
+  //   console.log('[render] 💥 showResults is true, rendering ResultsScreen');
+  //   return (
+  //     <ResultsScreen
+  //       yourTaps={yourTaps}
+  //       opponentTaps={opponentTaps}
+  //       winnerId={winnerId}
+  //       yourId={user.uid}
+  //       onRestart={() => {
+  //         // reset for a fresh flow
+  //         setShowResults(false);
+  //         setShowGame(false);
+  //         setCurrentChallengeId(null);
+  //         setIncomingChallenge(null);
+  //         setTimer(null);
+  //         setCountdown(3);
+  //       }}
+  //     />
+  //   );
+  // }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-gray-100 space-y-4">
