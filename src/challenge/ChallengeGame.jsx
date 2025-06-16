@@ -1,4 +1,3 @@
-// src/challenge/ChallengeGame.jsx
 import React, { useState, useEffect } from 'react';
 import TapGame from '../components/TapGame';
 import ResultsScreen from '../components/ResultsScreen';
@@ -29,18 +28,20 @@ export default function ChallengeGame() {
   const [timer, setTimer] = useState(null);
   const [countdown, setCountdown] = useState(null);
   const [showGame, setShowGame] = useState(false);
-
-  // Results state
   const [showResults, setShowResults] = useState(false);
   const [yourTaps, setYourTaps] = useState(0);
   const [opponentTaps, setOpponentTaps] = useState(0);
   const [winnerId, setWinnerId] = useState(null);
+  // persist id through accept for receiver
+  const [currentChallengeId, setCurrentChallengeId] = useState(null);
 
   // ─── Hooks ───────────────────────────────────────────────────────────────
   const { challenge: outgoingChallenge, remainingTime: outgoingTimer } =
     useOutgoingChallenge(user?.uid);
 
-  const challengeId = incomingChallenge?.id || outgoingChallenge?.id;
+  const rawId       = incomingChallenge?.id || outgoingChallenge?.id;
+  const challengeId = currentChallengeId || rawId;
+  // 🔑 FIX: subscribe to the _persistent_ challengeId, not rawId
   const { start, finish, status } = useChallengeStatus(challengeId);
 
   // Mark “in-game” in Firestore once we flip into the game screen
@@ -78,17 +79,18 @@ export default function ChallengeGame() {
       setUser(u);
       const snap = await getDoc(doc(db, 'users', u.uid));
       if (snap.exists()) setUsername(snap.data().username || '');
-      // clear state on new login
+      // reset all state on (re)login
       setIncomingChallenge(null);
       setTimer(null);
       setCountdown(null);
       setShowGame(false);
       setShowResults(false);
+      setCurrentChallengeId(null);
     });
     return () => unsub();
   }, []);
 
-  // Incoming pending listener
+  // listen for pending challenges
   useEffect(() => {
     if (!user) return;
     let init = false;
@@ -116,7 +118,7 @@ export default function ChallengeGame() {
     return () => unsub();
   }, [user]);
 
-  // Incoming countdown
+  // pending countdown
   useEffect(() => {
     if (timer == null) return;
     if (timer <= 0) {
@@ -124,46 +126,66 @@ export default function ChallengeGame() {
       setTimer(null);
       return;
     }
-    const i = setInterval(() => setTimer((t) => t - 1), 1000);
+    const i = setInterval(() => setTimer(t => t - 1), 1000);
     return () => clearInterval(i);
   }, [timer]);
 
-  // Accepted → 3s countdown
+  // when user Accepts a challenge
+  const handleAccept = async () => {
+    if (!incomingChallenge) return;
+    const id = incomingChallenge.id;
+    await acceptChallenge(id);
+    setCurrentChallengeId(id);
+    setIncomingChallenge(null);
+    setTimer(null);
+    setCountdown(3);
+  };
+
+  // for sender: detect their accepted state
   useEffect(() => {
     if (!outgoingChallenge) return;
     const ref = doc(db, 'challenges', outgoingChallenge.id);
     const unsub = onSnapshot(ref, (snap) => {
       const d = snap.data();
       if (d.status === 'accepted' && countdown == null) {
-        setIncomingChallenge(null);
-        setTimer(null);
         setCountdown(3);
       }
     });
     return () => unsub();
   }, [outgoingChallenge, countdown]);
 
-  // 3s → showGame
+  // 3s → showGame & persist id
   useEffect(() => {
     if (countdown == null) return;
     if (countdown <= 0) {
       setCountdown(null);
+      setCurrentChallengeId(rawId);
       setShowGame(true);
       return;
     }
-    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
     return () => clearTimeout(t);
-  }, [countdown]);
+  }, [countdown, rawId]);
 
   // ─── Handlers ──────────────────────────────────────────────────────────
 
-  // Wrap finish to record taps in Firestore then flip status
   const handleFinish = async (playerId, taps) => {
     setYourTaps(taps);
-    await updateDoc(doc(db, 'challenges', challengeId), {
-      [`taps.${playerId}`]: taps,
-      finishedAt: serverTimestamp()
-    });
+
+    // build the full taps map
+    const tapsMap = { [playerId]: taps };
+
+    // one atomic write that matches your in-game → finished rule
+    await updateDoc(
+      doc(db, 'challenges', challengeId),
+      {
+        status:     'finished',       // required
+        winner:     playerId,         // required
+        taps:       tapsMap,          // must be a map
+        finishedAt: serverTimestamp() // optional per your rules
+      }
+    );
+
     finish(playerId);
   };
 
@@ -173,28 +195,11 @@ export default function ChallengeGame() {
     }
     if (!user) return alert('Log in first');
     await createChallenge(user.uid, user.email, username, email.trim());
-    await fetch(
-      'https://us-central1-tapchallengegame-6255f.cloudfunctions.net/sendChallengeEmail',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromUsername: username, toEmail: email.trim() })
-      }
-    );
     setStatusMsg(`✅ Challenge sent to ${email.trim()}`);
     setEmail('');
   };
 
-  const handleAccept = async () => {
-    if (!incomingChallenge) return;
-    await acceptChallenge(incomingChallenge.id);
-    setIncomingChallenge(null);
-    setTimer(null);
-    setCountdown(3);
-  };
-
   // ─── Render ─────────────────────────────────────────────────────────────
-
   if (showGame && user) {
     return <TapGame onFinish={handleFinish} userId={user.uid} />;
   }
@@ -206,9 +211,10 @@ export default function ChallengeGame() {
         winnerId={winnerId}
         yourId={user.uid}
         onRestart={() => {
-          // reset local state for a restart
+          // reset for a fresh flow
           setShowResults(false);
           setShowGame(false);
+          setCurrentChallengeId(null);
           setIncomingChallenge(null);
           setTimer(null);
           setCountdown(3);
@@ -216,6 +222,7 @@ export default function ChallengeGame() {
       />
     );
   }
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-gray-100 space-y-4">
       <h1 className="text-2xl font-bold">🎯 Challenge a Friend</h1>
@@ -225,7 +232,10 @@ export default function ChallengeGame() {
         <div className="bg-yellow-100 border px-6 py-4 rounded w-full max-w-md text-center">
           <p>⚔️ Challenged by {incomingChallenge.fromUsername}</p>
           <p className="text-3xl">⏳ {timer}s to accept</p>
-          <button onClick={handleAccept} className="mt-2 bg-green-600 text-white px-4 py-2 rounded">
+          <button
+            onClick={handleAccept}
+            className="mt-2 bg-green-600 text-white px-4 py-2 rounded"
+          >
             Accept
           </button>
         </div>
@@ -234,27 +244,34 @@ export default function ChallengeGame() {
       {/* SENDER BANNER */}
       {outgoingChallenge && countdown == null && (
         <div className="bg-blue-100 border px-6 py-4 rounded w-full max-w-md text-center">
-          <p>⏳ Waiting for {outgoingChallenge.toUsername}…</p>
+          <p>⏳ Waiting for a response…</p>
           <p className="text-3xl mt-1">{outgoingTimer}s left</p>
         </div>
       )}
 
       {/* COUNTDOWN DISPLAY */}
       {countdown != null && (
-        <div className="text-4xl font-bold text-green-800">Game starts in {countdown}</div>
+        <div className="text-4xl font-bold text-green-800">
+          Game starts in {countdown}
+        </div>
       )}
 
       {/* INPUT & SEND */}
       <input
         value={email}
-        onChange={(e) => setEmail(e.target.value)}
+        onChange={e => setEmail(e.target.value)}
         placeholder="Friend’s Gmail"
         className="border p-2 rounded w-72"
       />
-      <button onClick={sendChallenge} className="bg-blue-600 text-white px-6 py-2 rounded">
+      <button
+        onClick={sendChallenge}
+        className="bg-blue-600 text-white px-6 py-2 rounded"
+      >
         Send Challenge
       </button>
-      {statusMsg && <p className="text-green-600 mt-2">{statusMsg}</p>}
+      {statusMsg && (
+        <p className="text-green-600 mt-2">{statusMsg}</p>
+      )}
     </div>
   );
 }

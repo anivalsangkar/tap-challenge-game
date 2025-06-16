@@ -1,4 +1,3 @@
-// src/components/TapGame.jsx
 import React, { useState, useEffect } from 'react';
 
 export default function TapGame({ onFinish, userId }) {
@@ -6,15 +5,16 @@ export default function TapGame({ onFinish, userId }) {
   const [timeLeft, setTimeLeft] = useState(15);
 
   useEffect(() => {
-    // When the timer hits zero, report both userId and taps
     if (timeLeft === 0) {
       onFinish(userId, taps);
       return;
     }
-    // Otherwise, count down every second
-    const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [timeLeft, onFinish, userId, taps]);
+    // FIX: don’t reset the timeout on every tap render
+    const timerId = setTimeout(() => {
+      setTimeLeft(prev => prev - 1);
+    }, 1000);
+    return () => clearTimeout(timerId);
+  }, [timeLeft, onFinish]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-green-100 text-center space-y-4">
