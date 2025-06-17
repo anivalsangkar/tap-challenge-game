@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 export default function ResultsScreen({
   yourTaps,
@@ -9,6 +9,7 @@ export default function ResultsScreen({
 }) {
   const isTie = winnerId === null;
   const youWin = winnerId === yourId;
+  const [showRematchNote, setShowRematchNote] = useState(false);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-white space-y-6">
@@ -25,12 +26,27 @@ export default function ResultsScreen({
       <p className="text-xl">Your taps: <strong>{yourTaps}</strong></p>
       <p className="text-xl">Opponent taps: <strong>{opponentTaps}</strong></p>
 
-      <button
-        onClick={onRestart}
-        className="mt-4 bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded"
-      >
-        Rematch?
-      </button>
+      <div className="flex flex-col items-center space-y-4 mt-6">
+        <button
+          onClick={onRestart}
+          className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded"
+        >
+          🔄 Restart
+        </button>
+
+        <button
+          onClick={() => setShowRematchNote(true)}
+          className="bg-gray-300 hover:bg-gray-400 text-black px-6 py-2 rounded"
+        >
+          🤝 Rematch (coming soon)
+        </button>
+
+        {showRematchNote && (
+          <p className="text-sm text-gray-600 mt-2">
+            Rematch feature is coming soon. For now, please click “Restart” to play again 🔁
+          </p>
+        )}
+      </div>
     </div>
   );
 }
