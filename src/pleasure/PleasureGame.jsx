@@ -2,21 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
-  doc,
-  getDoc,
-  updateDoc,
-  addDoc,
-  collection,
-  query,
-  where,
-  orderBy,
-  limit,
-  getDocs,
-  getCountFromServer
+  doc, getDoc, updateDoc, addDoc, collection, query, where,
+  orderBy, limit, getDocs, getCountFromServer
 } from 'firebase/firestore';
 import { getCoins, spendCoins, createPaymentOrder } from '../coins';
 import Login from '../components/Login';
 import Logout from '../components/Logout';
+import ReactGA from 'react-ga4';
 
 function PleasureGame() {
   const GAME_DURATION = 15;
@@ -36,7 +28,6 @@ function PleasureGame() {
   const [topFive, setTopFive] = useState([]);
   const [userRank, setUserRank] = useState(null);
 
-  // Auth listener
   useEffect(() => {
     return onAuthStateChanged(auth, async u => {
       setUser(u);
@@ -75,6 +66,14 @@ function PleasureGame() {
       alert('Enter a valid INR amount');
       return;
     }
+
+    ReactGA.event({
+      category: 'Coins',
+      action: 'buy_attempt',
+      label: `${inr} INR`,
+      value: inr
+    });
+
     setBuying(true);
     try {
       const { orderId, keyId } = await createPaymentOrder(user.uid, inr);
@@ -86,8 +85,16 @@ function PleasureGame() {
         description: `Buy ${inr * 2} coins`,
         order_id: orderId,
         handler: async () => {
+          ReactGA.event({
+            category: 'Coins',
+            action: 'buy_success',
+            label: `${inr} INR`,
+            value: inr
+          });
+
           setInrAmount('');
           alert('✅ Payment successful! Coins will be added shortly after verification.');
+
           let attempts = 0;
           const maxAttempts = 5;
 
@@ -107,6 +114,11 @@ function PleasureGame() {
       };
       new window.Razorpay(options).open();
     } catch (e) {
+      ReactGA.event({
+        category: 'Coins',
+        action: 'buy_failure',
+        label: e.message
+      });
       alert('Payment failed: ' + e.message);
     } finally {
       setBuying(false);
@@ -127,6 +139,7 @@ function PleasureGame() {
 
   useEffect(() => {
     if (timeLeft !== 0) return;
+
     (async () => {
       await addDoc(collection(db, 'scores'), {
         uid: user.uid,
@@ -148,12 +161,26 @@ function PleasureGame() {
       const qRank = query(collection(db, 'scores'), where('score', '>', count));
       const cntSnap = await getCountFromServer(qRank);
       setUserRank(cntSnap.data().count + 1);
+
+      // GA Tracking after game ends
+      const tapSpeed = count / GAME_DURATION;
+
+      ReactGA.event({ category: 'Game', action: 'tap_game_ended', label: 'Solo Mode', value: count });
+      ReactGA.event({ category: 'Game', action: 'tap_game_score_submitted', label: 'Solo Mode', value: count });
+      ReactGA.event({ category: 'Performance', action: 'tap_speed', label: 'Solo Mode', value: Math.round(tapSpeed * 100) });
+      ReactGA.event({ category: 'Coins', action: 'coins_remaining', label: 'Solo Mode', value: coins });
     })();
   }, [timeLeft, count]);
 
   const handleTap = () => {
-    if (!started) setStarted(true);
-    if (timeLeft > 0) setCount(c => c + 1);
+    if (!started) {
+      setStarted(true);
+      ReactGA.event({ category: 'Game', action: 'tap_game_started', label: 'Solo Mode' });
+    }
+    if (timeLeft > 0) {
+      setCount(c => c + 1);
+      ReactGA.event({ category: 'Game', action: 'tap_registered', label: 'Solo Mode' });
+    }
   };
 
   const handleRestart = () => {
@@ -164,7 +191,6 @@ function PleasureGame() {
     setUserRank(null);
   };
 
-  // UI Logic
   if (!user) return <Login />;
   if (!profileLoaded) return <div className="flex items-center justify-center min-h-screen">Loading…</div>;
   if (!username) {
@@ -220,6 +246,8 @@ function PleasureGame() {
         <div className="flex flex-col items-center space-y-2 mb-6">
           <button onClick={async () => {
             try {
+              ReactGA.event({ category: 'Coins', action: 'double_score_used', label: 'Solo Mode', value: 20 });
+              ReactGA.event({ category: 'Coins', action: 'coin_balance_before_double', label: 'Solo Mode', value: coins });
               const newBalance = await spendCoins(user.uid, 20);
               setCoins(newBalance);
               setCount(c => c * 2);

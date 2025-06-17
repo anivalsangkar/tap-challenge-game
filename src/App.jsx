@@ -1,9 +1,22 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import PleasureGame from './pleasure/PleasureGame';
 import ChallengeGame from './challenge/ChallengeGame';
 import TapGame from './components/TapGame';
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import ReactGA from 'react-ga4';
 
+// 🔁 GA Listener Component (tracks page views on route change)
+function GAListener() {
+  const location = useLocation();
+
+  useEffect(() => {
+    ReactGA.send({ hitType: 'pageview', page: location.pathname });
+  }, [location.pathname]);
+
+  return null;
+}
+
+// 🧭 Navigation Tabs at top
 function NavigationTabs() {
   const location = useLocation();
   const isActive = (path) => location.pathname === path;
@@ -30,9 +43,11 @@ function NavigationTabs() {
   );
 }
 
+// 🧠 Main App Component
 export default function App() {
   return (
     <Router>
+      <GAListener />
       <NavigationTabs />
       <Routes>
         <Route path="/" element={<PleasureGame />} />

@@ -1,3 +1,6 @@
+// ✅ GA4 Tracking Enabled
+import ReactGA from 'react-ga4';
+
 import React, { useState, useEffect } from 'react';
 import TapGame from '../components/TapGame';
 import ResultsScreen from '../components/ResultsScreen';
@@ -38,25 +41,24 @@ export default function ChallengeGame() {
   // ─── Hooks ───────────────────────────────────────────────────────────────
   const { challenge: outgoingChallenge, remainingTime: outgoingTimer } =
     useOutgoingChallenge(user?.uid);
-console.log('📦 incomingChallenge:', incomingChallenge?.id);
-console.log('📦 outgoingChallenge:', outgoingChallenge?.id);
-console.log('📦 currentChallengeId:', currentChallengeId);
+  console.log('📦 incomingChallenge:', incomingChallenge?.id);
+  console.log('📦 outgoingChallenge:', outgoingChallenge?.id);
+  console.log('📦 currentChallengeId:', currentChallengeId);
 
-
-  const rawId       = incomingChallenge?.id || outgoingChallenge?.id;
+  const rawId = incomingChallenge?.id || outgoingChallenge?.id;
   const challengeId = currentChallengeId || rawId;
-
   console.log('📌 rawId:', rawId);
-console.log('📌 challengeId:', challengeId);
+  console.log('📌 challengeId:', challengeId);
   // 🔑 FIX: subscribe to the _persistent_ challengeId, not rawId
   const { start, finish, status } = useChallengeStatus(challengeId);
 
   // Mark “in-game” in Firestore once we flip into the game screen
   useEffect(() => {
     if (showGame) {
-     console.log('[showGameEffect] showGame is true → starting in‐game status');
-     start();
-   }
+      console.log('[showGameEffect] showGame is true → starting in‐game status');
+      start();
+      ReactGA.event({ category: 'Challenge', action: 'challenge_started', label: challengeId || rawId });
+    }
   }, [showGame, start]);
 
   // When Firestore status flips to "finished", load taps and show results
@@ -73,6 +75,7 @@ console.log('📌 challengeId:', challengeId);
       setOpponentTaps(tapMap[oppId] || 0);
       console.log('[statusEffect] setting showResults(true)');
       setShowResults(true);
+      ReactGA.event({ category: 'Challenge', action: 'challenge_result_shown', label: challengeId });
     });
   }, [status, challengeId, user?.uid]);
 
@@ -123,6 +126,7 @@ console.log('📌 challengeId:', challengeId);
             showNotification('🎯 New Challenge!', {
               body: `Challenged by ${d.fromUsername || d.fromEmail}`
             });
+            ReactGA.event({ category: 'Challenge', action: 'challenge_received', label: d.fromEmail });
           }
         }
       });
@@ -151,6 +155,7 @@ console.log('📌 challengeId:', challengeId);
     setIncomingChallenge(null);
     setTimer(null);
     setCountdown(3);
+    ReactGA.event({ category: 'Challenge', action: 'challenge_accepted', label: incomingChallenge.fromEmail });
   };
 
   // for sender: detect their accepted state
@@ -182,56 +187,61 @@ console.log('📌 challengeId:', challengeId);
   // ─── Handlers ──────────────────────────────────────────────────────────
 
   const handleFinish = async (playerId, taps) => {
-  console.log('[handleFinish] called with', { playerId, taps, challengeId });
-  setYourTaps(taps);
+    console.log('[handleFinish] called with', { playerId, taps, challengeId });
+    setYourTaps(taps);
+    ReactGA.event({ category: 'Challenge', action: 'challenge_tap_count', value: taps });
+    ReactGA.event({ category: 'Challenge', action: 'challenge_ended', label: challengeId, value: taps });
 
-  const ref = doc(db, 'challenges', challengeId);
+    const ref = doc(db, 'challenges', challengeId);
 
-  // 1. Update this player's tap count
-  await updateDoc(ref, {
-    [`taps.${playerId}`]: taps
-  });
+    // 1. Update this player's tap count
+    await updateDoc(ref, {
+      [`taps.${playerId}`]: taps
+    });
 
-  // 2. Fetch the updated challenge data
-  const snap = await getDoc(ref);
-  const data = snap.data();
-  const tapMap = data?.taps || {};
+    // 2. Fetch the updated challenge data
+    const snap = await getDoc(ref);
+    const data = snap.data();
+    const tapMap = data?.taps || {};
 
-  // 3. Check if both players have finished
-  const playerIds = Object.keys(tapMap);
-  if (playerIds.length < 2) {
-    console.log('[handleFinish] Waiting for other player to finish...');
-    return; // Do nothing else yet
-  }
+    // 3. Check if both players have finished
+    const playerIds = Object.keys(tapMap);
+    if (playerIds.length < 2) {
+      console.log('[handleFinish] Waiting for other player to finish...');
+      return; // Do nothing else yet
+    }
 
-  const [id1, id2] = playerIds;
-  const taps1 = tapMap[id1];
-  const taps2 = tapMap[id2];
+    const [id1, id2] = playerIds;
+    const taps1 = tapMap[id1];
+    const taps2 = tapMap[id2];
 
-  let winner = null;
-  let isTie = false;
+    let winner = null;
+    let isTie = false;
 
-  if (taps1 > taps2) {
-    winner = id1;
-  } else if (taps2 > taps1) {
-    winner = id2;
-  } else {
-    isTie = true;
-    winner = null;
-  }
+    if (taps1 > taps2) {
+      winner = id1;
+    } else if (taps2 > taps1) {
+      winner = id2;
+    } else {
+      isTie = true;
+      winner = null;
+    }
 
-  // 4. Mark the challenge as finished only once
-  await updateDoc(ref, {
-    status: 'finished',
-    winner: winner,
-    isTie: isTie,
-    finishedAt: serverTimestamp()
-  });
+    // 4. Mark the challenge as finished only once
+    await updateDoc(ref, {
+      status: 'finished',
+      winner: winner,
+      isTie: isTie,
+      finishedAt: serverTimestamp()
+    });
 
-  console.log('[handleFinish] Game finished — Winner:', winner || 'Tie');
-  finish(playerId);
-};
-
+    console.log('[handleFinish] Game finished — Winner:', winner || 'Tie');
+    if (!isTie) {
+      ReactGA.event({ category: 'Challenge', action: 'challenge_winner', label: winner });
+    }
+    ReactGA.event({ category: 'Challenge', action: 'challenge_tap_delta', value: Math.abs(taps1 - taps2) });
+    finish(playerId);
+  };
 
   const sendChallenge = async () => {
     if (!/^[\w.+-]+@gmail\.com$/.test(email.trim())) {
@@ -240,30 +250,32 @@ console.log('📌 challengeId:', challengeId);
     if (!user) return alert('Log in first');
     await createChallenge(user.uid, user.email, username, email.trim());
     try {
-  const res = await fetch('https://us-central1-tapchallengegame-6255f.cloudfunctions.net/sendChallengeEmail', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fromUsername: username, toEmail: email.trim() })
-  });
-  const json = await res.json();
-  console.log('📧 Email function response:', json);
-  if (!res.ok) {
-    console.error('❌ Email send failed:', res.status, json);
-  }
-} catch (err) {
-  console.error('❌ Network/email error:', err);
-}
+      const res = await fetch('https://us-central1-tapchallengegame-6255f.cloudfunctions.net/sendChallengeEmail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromUsername: username, toEmail: email.trim() })
+      });
+      const json = await res.json();
+      console.log('📧 Email function response:', json);
+      if (!res.ok) {
+        console.error('❌ Email send failed:', res.status, json);
+      }
+    } catch (err) {
+      console.error('❌ Network/email error:', err);
+    }
+    ReactGA.event({ category: 'Challenge', action: 'challenge_sent', label: email.trim() });
     setStatusMsg(`✅ Challenge sent to ${email.trim()}`);
     setEmail('');
   };
- console.log(
+
+  console.log(
     '[render] showGame:', showGame,
     'showResults:', showResults,
     'incomingChallenge:', Boolean(incomingChallenge),
     'outgoingChallenge:', Boolean(outgoingChallenge)
   );
+
   // ─── Render ─────────────────────────────────────────────────────────────
-  
 
   if (showResults) {
     console.log('[render] 💥 showResults is true, rendering ResultsScreen');
@@ -273,39 +285,18 @@ console.log('📌 challengeId:', challengeId);
         opponentTaps={opponentTaps}
         winnerId={winnerId}
         yourId={user.uid}
-        onRestart={() => window.location.reload()}
-
+        onRestart={() => {
+          ReactGA.event({ category: 'Challenge', action: 'restart_clicked', label: challengeId });
+          window.location.reload();
+        }}
       />
     );
   }
-  
+
   if (showGame && user) {
     console.log('[render] before showResults check – showResults:', showResults);
     return <TapGame onFinish={handleFinish} userId={user.uid} />;
   }
-
-
-  
-  // if (showResults) {
-  //   console.log('[render] 💥 showResults is true, rendering ResultsScreen');
-  //   return (
-  //     <ResultsScreen
-  //       yourTaps={yourTaps}
-  //       opponentTaps={opponentTaps}
-  //       winnerId={winnerId}
-  //       yourId={user.uid}
-  //       onRestart={() => {
-  //         // reset for a fresh flow
-  //         setShowResults(false);
-  //         setShowGame(false);
-  //         setCurrentChallengeId(null);
-  //         setIncomingChallenge(null);
-  //         setTimer(null);
-  //         setCountdown(3);
-  //       }}
-  //     />
-  //   );
-  // }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-gray-100 space-y-4">
